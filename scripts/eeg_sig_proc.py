@@ -81,7 +81,54 @@ def plot_eeg_basic(input_path):
     # ax2.grid()     
     plt.show()
 
+def plot_notch_filter(input_path):
+    # Example: load sample EEG file (replace with your own path)
+    raw = mne.io.read_raw_edf(input_path, preload=True)
 
+    # Get data for F3 and F4
+    data, times = raw.get_data(picks=['F3..', 'F4..'], return_times=True)
+
+    fs = raw.info['sfreq']  # sampling frequency
+    print("sampling rate=", fs)
+    f, pxx_f3 = welch(data[0], fs=fs, nperseg=1024)
+    f, pxx_f4 = welch(data[1], fs=fs, nperseg=1024)
+
+    pxx_f3_db = 10 * np.log10(pxx_f3)
+    pxx_f4_db = 10 * np.log10(pxx_f4)
+
+    # Plot
+    plt.figure(figsize=(8,5), num=3)
+    plt.plot(f, pxx_f3_db, label='F3')
+    plt.plot(f, pxx_f4_db, label='F4')
+    plt.xlabel("Frequency (Hz)")
+    plt.ylabel("PSD (dB/Hz)")
+    plt.title("Welch PSD for F3 and F4")
+    plt.legend()
+    plt.grid(True)
+
+    raw.filter(l_freq=1.0, h_freq=70.0)
+    raw.notch_filter(freqs=[60])
+    data, times = raw.get_data(picks=['F3..', 'F4..'], return_times=True)
+
+    fs = raw.info['sfreq']  # sampling frequency
+    f, pxx_f3 = welch(data[0], fs=fs, nperseg=1024)
+    f, pxx_f4 = welch(data[1], fs=fs, nperseg=1024)
+
+    pxx_f3_db = 10 * np.log10(pxx_f3)
+    pxx_f4_db = 10 * np.log10(pxx_f4)
+
+    # Plot
+    plt.figure(figsize=(8,5), num=4)
+    plt.plot(f, pxx_f3_db, label='F3')
+    plt.plot(f, pxx_f4_db, label='F4')
+    plt.xlabel("Frequency (Hz)")
+    plt.ylabel("PSD (dB/Hz)")
+    plt.title("Welch PSD for F3 and F4 with filtering")
+    plt.legend()
+    plt.grid(True)
+
+
+    plt.show()   
 
 
 
@@ -91,6 +138,10 @@ def main(test_type, debug_type, input_path):
 
     if test_type == "plot":
         plot_eeg_basic(input_path)
+    elif test_type == "notch_filter":
+        plot_notch_filter(input_path)
+
+     
 
 
 if __name__ == '__main__':
