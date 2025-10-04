@@ -26,10 +26,10 @@ def plot_eeg_basic(input_path):
     data, times = raw.get_data(picks=['F3..', 'F4..'], return_times=True)
 
     plt.figure(num=1)
-    plt.plot(times, data[0]*1e6, label='F3')   # convert V → µV
+    plt.plot(times, data[0]*1e6, label='F3')   # convert V to microV
     plt.plot(times, data[1]*1e6, label='F4')
     plt.xlabel("Time (s)")
-    plt.ylabel("Amplitude (µV)")
+    plt.ylabel("Amplitude (microV)")
     # plt.yticks([-100, -50, 0, 50, 100])  # custom y-ticks
     plt.legend()
     plt.grid()
@@ -59,26 +59,6 @@ def plot_eeg_basic(input_path):
     plt.title("Welch PSD for F3 and F4")
     plt.legend()
     plt.grid(True)
-    plt.show()
-
-    # plt.figure(101)
-    # ax1 = plt.subplot(2,1,1)
-    # ax1 = plt.gca()
-    # ax1.plot(times, data[0]*1e6, label='F3')
-    # ax1.plot(times, data[1]*1e6, label='F4')
-    # ax1.legend(loc='upper center', bbox_to_anchor=(0.9, 0.9),ncol=1, fancybox=True, shadow=True)
-    # ax1.set_xlabel("Time (s)")
-    # ax1.set_ylabel("Amplitude (µV)")
-    # ax1.set_title("EEG F3/F4")   
-    # ax1.grid()       
-    # ax2 = plt.subplot(2,1,2, sharex=ax1)
-    # ax2.plot(times, 10*np.log10(data[0]*data[0]*1e12), label='F3')
-    # # ax2.plot(times, data[1]*1e6, label='F4')
-    # ax2 = plt.gca()
-    # ax2.legend(loc='upper center', bbox_to_anchor=(0.9, 0.9),ncol=1, fancybox=True, shadow=True)
-    # ax1.set_xlabel("Time (s)")
-    # ax1.set_ylabel("Amplitude dB (V)")
-    # ax2.grid()     
     plt.show()
 
 def plot_notch_filter(input_path):
