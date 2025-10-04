@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import argparse
 import numpy as np
 from scipy.signal import welch
+from scipy.signal import stft
 
 def plot_eeg_basic(input_path):
     # Example: load sample EEG file (replace with your own path)
@@ -59,6 +60,70 @@ def plot_eeg_basic(input_path):
     plt.title("Welch PSD for F3 and F4")
     plt.legend()
     plt.grid(True)
+
+    # Suppose data_f3 and data_f4 are your two EEG channels (1D NumPy arrays)
+    # Example: data_f3, data_f4 = raw.get_data(picks=['F3','F4'])
+
+    # Compute STFT for both channels
+    data_f3 = data[0]
+    data_f4 = data[1]
+    f_f3, t_f3, Zxx_f3 = stft(data_f3, fs=fs, nperseg=320, noverlap=240)
+    f_f4, t_f4, Zxx_f4 = stft(data_f4, fs=fs, nperseg=320, noverlap=240)
+
+    # Create figure with 2 rows (one for each channel)
+    fig, axes = plt.subplots(2, 1, figsize=(10, 8), num=4)  # <-- figure number 3
+
+    # ---- Plot F3 ----
+    im1 = axes[0].pcolormesh(t_f3, f_f3, 10*np.log10(np.abs(Zxx_f3)**2), shading='gouraud')
+    axes[0].set_title('STFT Spectrum - F3')
+    axes[0].set_ylabel('Frequency [Hz]')
+    axes[0].set_ylim(0, 40)
+    fig.colorbar(im1, ax=axes[0], label='Power (dB)')
+
+    # ---- Plot F4 ----
+    im2 = axes[1].pcolormesh(t_f4, f_f4, 10*np.log10(np.abs(Zxx_f4)**2), shading='gouraud')
+    axes[1].set_title('STFT Spectrum - F4')
+    axes[1].set_ylabel('Frequency [Hz]')
+    axes[1].set_xlabel('Time [s]')
+    axes[1].set_ylim(0, 40)
+    fig.colorbar(im2, ax=axes[1], label='Power (dB)')
+
+    # ---- Final adjustments ----
+    plt.tight_layout()
+
+    N_f3 = len(data_f3)
+    N_f4 = len(data_f4)
+    freqs_f3 = np.fft.rfftfreq(N_f3, d=1/fs)
+    freqs_f4 = np.fft.rfftfreq(N_f4, d=1/fs)
+
+    fft_f3 = np.fft.rfft(data_f3)
+    fft_f4 = np.fft.rfft(data_f4)
+
+    # Magnitude in dB
+    mag_f3_db = 20 * np.log10(np.abs(fft_f3) + 1e-12)
+    mag_f4_db = 20 * np.log10(np.abs(fft_f4) + 1e-12)
+
+    # Create figure with two stacked subplots
+    fig, axes = plt.subplots(2, 1, figsize=(10, 8), num=5)  # Figure number 5
+
+    # ---- F3 ----
+    axes[0].plot(freqs_f3, mag_f3_db, color='C0')
+    axes[0].set_title('FFT Magnitude - F3')
+    axes[0].set_xlim(0, 40)  # EEG band
+    axes[0].set_ylim(-100, 0)
+    axes[0].set_ylabel('Magnitude (dB)')
+    axes[0].grid(True)
+
+    # ---- F4 ----
+    axes[1].plot(freqs_f4, mag_f4_db, color='C1')
+    axes[1].set_title('FFT Magnitude - F4')
+    axes[1].set_xlim(0, 40)
+    axes[1].set_ylim(-100, 0)
+    axes[1].set_xlabel('Frequency (Hz)')
+    axes[1].set_ylabel('Magnitude (dB)')
+    axes[1].grid(True)
+
+    plt.tight_layout()
     plt.show()
 
 def plot_notch_filter(input_path):
