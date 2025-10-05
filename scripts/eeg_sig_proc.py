@@ -4,6 +4,75 @@ import argparse
 import numpy as np
 from scipy.signal import welch
 from scipy.signal import stft
+from eeg_band_tracker import STFTConfig, RunningBaseline, stft_power_1shot, band_indices, aggregate_bands
+
+def plot_aggreated_bands(input_path):
+    raw = mne.io.read_raw_edf(input_path, preload=True)
+    raw.filter(l_freq=1.0, h_freq=70.0)
+    raw.notch_filter(freqs=[60])
+
+    # Get data for F3 and F4
+    data, times = raw.get_data(picks=['F3..', 'F4..'], return_times=True)
+    fs = raw.info['sfreq']  # sampling frequency
+    f, pxx_f3 = welch(data[0], fs=fs, nperseg=1024)
+    plt.figure(num=2)
+    plt.semilogy(f, pxx_f3, label='F3')
+    plt.xlim(0, 40)  # EEG band
+    plt.xlabel("Frequency (Hz)")
+    plt.ylabel("PSD (V^2/Hz)")
+    plt.grid()
+    plt.legend()
+    # print(data.shape())
+    x = data[0]
+    # Inputs: x = 1D numpy EEG for one channel; fs = sampling rate
+    fs = 160
+    cfg = STFTConfig(fs=fs, nperseg=320, noverlap=240, window="hann")
+
+    # Warm-up to get frequency grid and init baseline
+    fgrid, _ = stft_power_1shot(np.zeros(cfg.nperseg), cfg)
+    rb = RunningBaseline(n_freq=fgrid.size, alpha=0.95)
+
+    BANDS = {"delta": (1,2.5), "theta": (4,8), "alpha": (12,13), "beta": (13,30)}
+    bidx = band_indices(fgrid, BANDS)
+
+    # Stream your data in chunks of length nperseg with hop = nperseg - noverlap
+    hop = cfg.nperseg - cfg.noverlap
+    n_steps = (len(x) - cfg.nperseg) // hop + 1
+    band_names = list(BANDS.keys())
+    heat = np.full((len(band_names), n_steps), np.nan)
+
+    for i in range(n_steps):
+        start = i * hop
+        chunk = x[start:start+cfg.nperseg]
+        f, P_lin = stft_power_1shot(chunk, cfg)
+
+        # update + compute per-frequency contrast (in dB)
+        rb.update(P_lin)
+        contrast_db = rb.contrast_db(P_lin)
+
+        # collapse frequency → band
+        vals = aggregate_bands(contrast_db, bidx)
+        heat[:, i] = [vals[b] for b in band_names]
+
+    # Final one-shot plot
+    # convert hop index → time (seconds)
+    hop_len = cfg.nperseg - cfg.noverlap
+    time_axis = np.arange(n_steps) * hop_len / fs  # seconds
+
+    plt.figure(figsize=(10, 4), num=5)
+    plt.imshow(
+        heat,
+        aspect='auto',
+        origin='lower',
+        extent=[time_axis[0], time_axis[-1], 0, len(band_names)],
+    )
+    plt.yticks(np.arange(len(band_names)) + 0.5, band_names)
+    plt.xlabel("Time (s)")
+    plt.title("Baseline-relative band contrast (dB)")
+    plt.colorbar(label="dB")
+    plt.tight_layout()
+    plt.show()
+
 
 def plot_eeg_basic(input_path):
     # Example: load sample EEG file (replace with your own path)
@@ -176,8 +245,6 @@ def plot_notch_filter(input_path):
     plt.show()   
 
 
-
-
 def main(test_type, debug_type, input_path):
     
 
@@ -185,7 +252,9 @@ def main(test_type, debug_type, input_path):
         plot_eeg_basic(input_path)
     elif test_type == "notch_filter":
         plot_notch_filter(input_path)
-
+    elif test_type =="plot_bands":
+        print("ttt")
+        plot_aggreated_bands(input_path)
      
 
 
