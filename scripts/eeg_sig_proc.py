@@ -373,6 +373,115 @@ def plot_notch_filter(input_path):
 
     plt.show()   
 
+def plot_events(input_path):
+    edf_path = input_path   # <-- change to your file
+    channel  = "F3.."            # e.g., 'F3' (or any channel present in your data)
+
+    # STFT params (fs will be read from the file)
+    nperseg  = None    # if None, will use int(2*fs) below (≈ 2s window)
+    overlap  = 0.75    # 75% overlap (fraction of nperseg)
+    fmax_plot = 40.0   # show 0–40 Hz in spectrogram
+
+    # -----------------------
+    # 1) Load EDF, extract numpy and events
+    # -----------------------
+    raw = mne.io.read_raw_edf(edf_path, preload=True)
+    fs  = float(raw.info['sfreq'])
+
+    if channel not in raw.ch_names:
+        raise ValueError(f"Channel {channel!r} not found. Available: {raw.ch_names}")
+
+    # EEG channel -> NumPy
+    x, times = raw.get_data(picks=[channel], return_times=True)
+    x = x.flatten()             # shape (n_samples,)
+    times = times.astype(float) # seconds
+
+    # Events from EDF annotations -> sample indices + mapping
+    events, event_id = mne.events_from_annotations(raw)
+    # Map numeric codes back to labels, e.g. 1->'T0', 2->'T1', 3->'T2'
+    id_to_label = {v:k for k, v in event_id.items()}
+
+    event_samples = events[:, 0]
+    event_secs    = event_samples / fs
+    event_labels  = [id_to_label[e] for e in events[:, 2]]
+
+    # (Optional) quick palette for T0/T1/T2:
+    color_map = {'T0': 'tab:gray', 'T1': 'tab:green', 'T2': 'tab:red'}
+
+    # -----------------------
+    # 2) Compute STFT (NumPy/Scipy)
+    # -----------------------
+    if nperseg is None:
+        nperseg = int(2 * fs)   # ~2-second windows for EEG bands
+    noverlap = int(overlap * nperseg)
+
+    # STFT
+    f, t_stft, Zxx = stft(x, fs=fs, nperseg=nperseg, noverlap=noverlap, window='hann', boundary=None)
+
+    # Power (linear) -> dB
+    Pxx = np.abs(Zxx)**2
+    Pxx_db = 10.0 * np.log10(Pxx + 1e-20)
+
+    # Limit to 0–fmax_plot Hz
+    f_mask = (f >= 0) & (f <= fmax_plot)
+    f_plot = f[f_mask]
+    Pxx_db_plot = Pxx_db[f_mask, :]
+
+    # -----------------------
+    # 3A) Plot time series + events (Figure 1)
+    # -----------------------
+    plt.figure(figsize=(11, 3.2), num=1)
+    plt.plot(times, x*1e6, lw=0.7)  # µV for readability
+    plt.xlabel("Time (s)")
+    plt.ylabel("Amplitude (µV)")
+    plt.title(f"EEG time series — {channel}")
+
+    # Vertical lines for each event
+    for t_ev, lab in zip(event_secs, event_labels):
+        plt.axvline(t_ev, color=color_map.get(lab, 'k'), ls='--', lw=0.8, alpha=0.8)
+
+    # Legend showing which color = which label
+    # (build a small unique set to avoid repeats)
+    shown = set()
+    for lab in event_labels:
+        if lab not in shown:
+            plt.axvline(np.nan, color=color_map.get(lab, 'k'), ls='--', lw=1.5, label=lab)  # dummy for legend
+            shown.add(lab)
+    if shown:
+        plt.legend(loc='upper right', ncols=len(shown))
+
+    plt.tight_layout()
+    # plt.show()
+
+    # -----------------------
+    # 3B) Plot STFT spectrogram + events (Figure 2)
+    # -----------------------
+    plt.figure(figsize=(11, 3.8), num=2)
+    # pcolormesh expects time on x, freq on y
+    mesh = plt.pcolormesh(t_stft, f_plot, Pxx_db_plot, shading='gouraud')
+    plt.ylim(0, fmax_plot)
+    plt.xlabel("Time (s)")
+    plt.ylabel("Frequency (Hz)")
+    plt.title(f"STFT spectrogram (dB) — {channel}")
+    cbar = plt.colorbar(mesh, label="Power (dB)")
+
+    # Overlay event lines at their time stamps
+    for t_ev, lab in zip(event_secs, event_labels):
+        # Only draw if within the spectrogram time range
+        if t_stft.min() <= t_ev <= t_stft.max():
+            plt.axvline(t_ev, color=color_map.get(lab, 'k'), ls='--', lw=0.8, alpha=0.9)
+
+    # Legend for event labels (same trick as above)
+    shown = set()
+    for lab in event_labels:
+        if lab not in shown:
+            plt.axvline(np.nan, color=color_map.get(lab, 'k'), ls='--', lw=1.5, label=lab)
+            shown.add(lab)
+    if shown:
+        plt.legend(loc='upper right', ncols=len(shown))
+
+    plt.tight_layout()
+    plt.show()
 
 def main(test_type, debug_type, input_path):
     
@@ -385,7 +494,8 @@ def main(test_type, debug_type, input_path):
         plot_aggreated_bands(input_path)
     elif test_type =="plot_front_lobe":
         plot_front_lobe_asymmetry(input_path)
-
+    elif test_type =="plot_events":
+        plot_events(input_path)
 
 if __name__ == '__main__':
 
