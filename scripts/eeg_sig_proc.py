@@ -6,6 +6,135 @@ from scipy.signal import welch
 from scipy.signal import stft
 from eeg_band_tracker import STFTConfig, RunningBaseline, stft_power_1shot, band_indices, aggregate_bands
 
+# ---------------------------
+# 1) Helper: compute alpha band power (V^2) via Welch
+# ---------------------------
+def compute_alpha_power(signal, fs, band=(8, 12), nperseg=None, noverlap=None, window='hann'):
+    """
+    Compute band power using Welch PSD and integrate over the band (V^2).
+    signal: 1D numpy array in Volts
+    fs: sampling rate (Hz)
+    """
+    if nperseg is None:
+        nperseg = int(2 * fs)  # 2-second windows (good for alpha)
+    if noverlap is None:
+        noverlap = nperseg // 2  # 50% overlap
+    f, Pxx = welch(signal, fs=fs, window=window, nperseg=nperseg, noverlap=noverlap, scaling='density')
+    fmin, fmax = band
+    mask = (f >= fmin) & (f <= fmax)
+    power = np.trapz(Pxx[mask], f[mask])  # integrate PSD over band -> V^2
+    return power
+
+def plot_front_lobe_asymmetry(input_path):
+    # ---------------------------
+    # 2) Load EEG (replace path)
+    # ---------------------------
+    raw = mne.io.read_raw_edf(input_path, preload=True)  # <-- set your path
+    fs = raw.info['sfreq']
+
+    # (Optional but recommended) light filtering for alpha analyses:
+    # raw = raw.copy().filter(l_freq=1., h_freq=40., picks='eeg')
+
+    # Choose frontal channels of interest (some files may not have all)
+    candidate_chs = ['Fp1.','Fp2.','F3..','F4..','F7..','F8..','Fc3.','Fc4.']
+
+    # Build signals dict from channels that exist
+    signals = {}
+    avail = set(raw.ch_names)
+    for ch in candidate_chs:
+        if ch in avail:
+            sig, _ = raw.get_data(picks=[ch], return_times=True)
+            signals[ch] = sig.flatten()
+        else:
+            print(f"[warn] Channel {ch} not found in this recording; skipping.")
+
+    # Require at least one valid pair
+    pairs = [('Fp1.','Fp2.'), ('F3..','F4..'), ('F7..','F8..'), ('Fc3.','Fc4.')]
+    pairs = [(L,R) for (L,R) in pairs if (L in signals and R in signals)]
+    if not pairs:
+        raise RuntimeError("None of the target frontal pairs are present in this file.")
+
+    # ---------------------------
+    # 3) Compute alpha power & FAA per pair
+    # ---------------------------
+    alpha_powers = {}
+    for ch, sig in signals.items():
+        alpha_powers[ch] = compute_alpha_power(sig, fs, band=(8,12))
+
+    # FAA = ln(alpha_right) - ln(alpha_left)
+    faa_values = { (L,R): (np.log(alpha_powers[R] + 1e-20) - np.log(alpha_powers[L] + 1e-20))
+                for (L,R) in pairs }
+
+    # ---------------------------
+    # 4A) Plot 1 — FAA bar plot (per pair)
+    # ---------------------------
+    labels = [f"{L}-{R}" for (L,R) in pairs]
+    faa_bar = [faa_values[(L,R)] for (L,R) in pairs]
+
+    plt.figure(figsize=(8,4), num=1)
+    plt.bar(labels, faa_bar)
+    plt.axhline(0, color='k', lw=1)
+    plt.ylabel("FAA = ln(alpha_R) - ln(alpha_L)")
+    plt.title("Frontal Alpha Asymmetry (FAA)")
+    plt.grid(axis='y', linestyle='--', alpha=0.5)
+    plt.tight_layout()
+
+    # ---------------------------
+    # 4B) Plot 2 — Simple head map with frontal electrodes
+    # Color = log alpha power; dashed lines connect asymmetry pairs
+    # ---------------------------
+
+    # Approximate 2D positions (10–20-ish) for illustration; adjust if you like
+    electrode_pos = {
+        'Fp1.': (-0.45,  0.85), 'Fp2.': ( 0.45,  0.85),
+        'F7..' : (-0.75,  0.45), 'F8..' : ( 0.75,  0.45),
+        'F3..' : (-0.40,  0.55), 'F4..' : ( 0.40,  0.55),
+        'Fc3.': (-0.30,  0.25), 'Fc4.': ( 0.30,  0.25),
+    }
+
+    # Keep only positions for channels we actually have
+    plot_chs = [ch for ch in electrode_pos if ch in signals]
+    vals = np.array([np.log(alpha_powers[ch] + 1e-20) for ch in plot_chs])
+    vmin, vmax = vals.min(), vals.max()
+
+    fig, ax = plt.subplots(figsize=(6,6), num=2)
+
+    # head outline
+    theta = np.linspace(0, 2*np.pi, 400)
+    ax.plot(np.cos(theta), np.sin(theta), 'k', lw=2)
+    # nose
+    ax.plot([0, -0.08, 0.08, 0], [1.0, 1.1, 1.1, 1.0], 'k', lw=2)
+    # ears
+    ax.plot([ -1.02, -1.05, -1.02], [0.2, 0.0, -0.2], 'k', lw=2)
+    ax.plot([  1.02,  1.05,  1.02], [0.2, 0.0, -0.2], 'k', lw=2)
+
+    # scatter electrodes (color = log alpha power)
+    sc = None
+    for ch in plot_chs:
+        x, y = electrode_pos[ch]
+        val = np.log(alpha_powers[ch] + 1e-20)
+        sc = ax.scatter(x, y, s=360, c=[[val]], vmin=vmin, vmax=vmax,
+                        cmap='viridis', edgecolor='k')
+        ax.text(x, y, ch, ha='center', va='center', color='w',
+                fontsize=10, fontweight='bold')
+
+    # dashed lines for pairs that exist
+    for (L,R) in pairs:
+        x1, y1 = electrode_pos.get(L, (None,None))
+        x2, y2 = electrode_pos.get(R, (None,None))
+        if x1 is not None and x2 is not None:
+            ax.plot([x1, x2], [y1, y2], 'k--', alpha=0.6)
+
+    ax.set_aspect('equal', 'box')
+    ax.set_xlim(-1.2, 1.2); ax.set_ylim(-1.1, 1.2)
+    ax.axis('off')
+    if sc is not None:
+        cbar = fig.colorbar(sc, ax=ax, shrink=0.8, pad=0.03)
+        cbar.set_label("log alpha power (V²)")
+    ax.set_title("Frontal electrodes: log alpha power + asymmetry pairs")
+    plt.tight_layout()
+    plt.show()
+
 def plot_aggreated_bands(input_path):
     raw = mne.io.read_raw_edf(input_path, preload=True)
     raw.filter(l_freq=1.0, h_freq=70.0)
@@ -253,9 +382,9 @@ def main(test_type, debug_type, input_path):
     elif test_type == "notch_filter":
         plot_notch_filter(input_path)
     elif test_type =="plot_bands":
-        print("ttt")
         plot_aggreated_bands(input_path)
-     
+    elif test_type =="plot_front_lobe":
+        plot_front_lobe_asymmetry(input_path)
 
 
 if __name__ == '__main__':
